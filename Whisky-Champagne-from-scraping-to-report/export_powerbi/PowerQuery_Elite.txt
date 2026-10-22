@@ -1,0 +1,111 @@
+POWER QUERY - Elite Dashboard (3 query: Whisky, Champagne, Country)
+==================================================================
+
+Come si usa, in Power BI Desktop:
+ 1. Home > Trasforma dati (si apre Power Query).
+ 2. Home > Nuova origine > Query vuota.
+ 3. Home > Editor avanzato: cancella tutto, incolla il codice della query, Fatto.
+ 4. Nel pannello a destra rinomina la query ESATTAMENTE come indicato (Whisky, Champagne, Country).
+ 5. Ripeti per le tre query, NELL'ORDINE: prima Whisky e Champagne, poi Country (Country le usa).
+ 6. Chiudi e applica.
+ 7. Vista Modello: trascina Country[nazionalita_codice] su Whisky[nazionalita_codice]
+    e su Champagne[nazionalita_codice] -> relazioni 1 a molti, filtro a direzione singola.
+
+Se i CSV li hai esportati con --formato-italiano, nelle due query dei lotti cambia
+Delimiter="," in Delimiter=";" e "en-US" in "it-IT".
+
+
+------------------------------------------------------------------
+QUERY 1 - nome: Whisky
+------------------------------------------------------------------
+let
+    Origine = Csv.Document(
+        File.Contents("C:\Users\andre\Desktop\Elite-Dashboard\export_powerbi\lotti_whisky.csv"),
+        [Delimiter = ",", Encoding = 65001, QuoteStyle = QuoteStyle.Csv]),
+    Intestazioni = Table.PromoteHeaders(Origine, [PromoteAllScalars = true]),
+    Tipi = Table.TransformColumnTypes(Intestazioni, {
+        {"id", Int64.Type}, {"distilleria", type text}, {"stile", type text},
+        {"numero_bottiglie", Int64.Type}, {"formato", type number}, {"eta", type text},
+        {"data_chiusura", type datetime}, {"prezzo_riserva", type text},
+        {"numero_offerte", Int64.Type}, {"prezzo_finale", type number},
+        {"title", type text}, {"status", type text}, {"url", type text},
+        {"timestamp", type datetime}, {"has_box", Int64.Type}, {"is_mixed", Int64.Type},
+        {"imbottigliatore", type text}, {"nazionalita_stato", type text},
+        {"nazionalita_codice", type text}, {"nazionalita_nome", type text},
+        {"winner_username", type text}, {"winner_id", type text}}, "en-US"),
+    // celle non convertibili (date o numeri mancanti) -> vuote invece di errore
+    SenzaErrori = Table.ReplaceErrorValues(Tipi, {
+        {"data_chiusura", null}, {"timestamp", null}, {"formato", null},
+        {"prezzo_finale", null}, {"numero_bottiglie", null}, {"numero_offerte", null}}),
+    PaeseVuoto = Table.ReplaceValue(SenzaErrori, "", null, Replacer.ReplaceValue,
+        {"nazionalita_codice", "nazionalita_nome"}),
+    // chiave univoca del lotto anche quando whisky e champagne stanno insieme
+    IDlotto = Table.AddColumn(PaeseVuoto, "IDlotto", each "W-" & Text.From([id]), type text),
+    Categoria = Table.AddColumn(IDlotto, "categoria", each "Whisky", type text)
+in
+    Categoria
+
+
+------------------------------------------------------------------
+QUERY 2 - nome: Champagne
+------------------------------------------------------------------
+let
+    Origine = Csv.Document(
+        File.Contents("C:\Users\andre\Desktop\Elite-Dashboard\export_powerbi\lotti_champagne.csv"),
+        [Delimiter = ",", Encoding = 65001, QuoteStyle = QuoteStyle.Csv]),
+    Intestazioni = Table.PromoteHeaders(Origine, [PromoteAllScalars = true]),
+    Tipi = Table.TransformColumnTypes(Intestazioni, {
+        {"id", Int64.Type}, {"maison", type text}, {"tipologia", type text},
+        {"numero_bottiglie", Int64.Type}, {"formato", type number}, {"vintage", type text},
+        {"data_chiusura", type datetime}, {"prezzo_riserva", type text},
+        {"numero_offerte", Int64.Type}, {"prezzo_finale", type number},
+        {"title", type text}, {"status", type text}, {"url", type text},
+        {"timestamp", type datetime}, {"has_box", Int64.Type}, {"is_mixed", Int64.Type},
+        {"nazionalita_stato", type text},
+        {"nazionalita_codice", type text}, {"nazionalita_nome", type text},
+        {"winner_username", type text}, {"winner_id", type text}}, "en-US"),
+    SenzaErrori = Table.ReplaceErrorValues(Tipi, {
+        {"data_chiusura", null}, {"timestamp", null}, {"formato", null},
+        {"prezzo_finale", null}, {"numero_bottiglie", null}, {"numero_offerte", null}}),
+    PaeseVuoto = Table.ReplaceValue(SenzaErrori, "", null, Replacer.ReplaceValue,
+        {"nazionalita_codice", "nazionalita_nome"}),
+    IDlotto = Table.AddColumn(PaeseVuoto, "IDlotto", each "C-" & Text.From([id]), type text),
+    Categoria = Table.AddColumn(IDlotto, "categoria", each "Champagne", type text)
+in
+    Categoria
+
+
+------------------------------------------------------------------
+QUERY 3 - nome: Country   (tabella dei paesi, chiave = nazionalita_codice)
+------------------------------------------------------------------
+let
+    // 1. tutti i paesi presenti in whisky e champagne, una riga per paese
+    Unione = Table.Combine({
+        Table.SelectColumns(Whisky, {"nazionalita_codice", "nazionalita_nome"}),
+        Table.SelectColumns(Champagne, {"nazionalita_codice", "nazionalita_nome"})}),
+    SoloPaesi = Table.SelectRows(Unione, each [nazionalita_codice] <> null),
+    Paesi = Table.Distinct(SoloPaesi, {"nazionalita_codice"}),
+
+    // 2. lotti vinti per paese in ciascuna categoria (solo nazionalita' verificate)
+    VintiWhisky = Table.Group(
+        Table.SelectRows(Whisky, each [nazionalita_stato] = "verificata"),
+        {"nazionalita_codice"}, {{"lotti_whisky_vinti", each Table.RowCount(_), Int64.Type}}),
+    VintiChampagne = Table.Group(
+        Table.SelectRows(Champagne, each [nazionalita_stato] = "verificata"),
+        {"nazionalita_codice"}, {{"lotti_champagne_vinti", each Table.RowCount(_), Int64.Type}}),
+
+    // 3. merge LEFT OUTER sul codice paese: tutti i paesi restano, anche chi compra una sola categoria
+    MergeWhisky = Table.NestedJoin(Paesi, {"nazionalita_codice"}, VintiWhisky, {"nazionalita_codice"},
+        "W", JoinKind.LeftOuter),
+    EspandiWhisky = Table.ExpandTableColumn(MergeWhisky, "W", {"lotti_whisky_vinti"}),
+    MergeChampagne = Table.NestedJoin(EspandiWhisky, {"nazionalita_codice"}, VintiChampagne, {"nazionalita_codice"},
+        "C", JoinKind.LeftOuter),
+    EspandiChampagne = Table.ExpandTableColumn(MergeChampagne, "C", {"lotti_champagne_vinti"}),
+    Zeri = Table.ReplaceValue(EspandiChampagne, null, 0, Replacer.ReplaceValue,
+        {"lotti_whisky_vinti", "lotti_champagne_vinti"}),
+    Tipi = Table.TransformColumnTypes(Zeri, {
+        {"nazionalita_codice", type text}, {"nazionalita_nome", type text},
+        {"lotti_whisky_vinti", Int64.Type}, {"lotti_champagne_vinti", Int64.Type}}),
+    Ordinata = Table.Sort(Tipi, {{"nazionalita_nome", Order.Ascending}})
+in
+    Ordinata

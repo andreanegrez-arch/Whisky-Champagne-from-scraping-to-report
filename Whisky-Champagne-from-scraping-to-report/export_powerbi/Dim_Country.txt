@@ -1,0 +1,94 @@
+DIM_COUNTRY - da aggiungere al tuo .pbix
+=========================================
+
+A) POWER QUERY - nuova query "Dim_Country"
+   Home > Trasforma dati > Nuova origine > Query vuota > Editor avanzato: incolla, poi rinomina in Dim_Country.
+   Se le tue query dei lotti non si chiamano lotti_whisky e lotti_champagne, cambia solo le due righe W0 e C0.
+
+let
+    W0 = lotti_whisky,
+    C0 = lotti_champagne,
+
+    // solo righe con paese, date convertite (funziona sia se sono gia' date sia se sono testo)
+    Prepara = (t as table) as table =>
+        let
+            Sel = Table.SelectColumns(t, {"nazionalita_codice", "nazionalita_nome", "data_chiusura", "timestamp"}),
+            ConPaese = Table.SelectRows(Sel, each [nazionalita_codice] <> null and Text.Trim(Text.From([nazionalita_codice])) <> ""),
+            Date = Table.TransformColumns(ConPaese, {
+                {"data_chiusura", each try DateTime.From(_, "en-US") otherwise null, type nullable datetime},
+                {"timestamp", each try DateTime.From(_, "en-US") otherwise null, type nullable datetime}})
+        in
+            Date,
+    W = Prepara(W0),
+    C = Prepara(C0),
+
+    // per paese: lotti vinti, prima/ultima data di chiusura asta, ultima data di generazione del dato
+    Aggrega = (t as table, prefisso as text) as table =>
+        Table.Group(t, {"nazionalita_codice"}, {
+            {prefisso & "_lotti_vinti", each Table.RowCount(_), Int64.Type},
+            {prefisso & "_prima_chiusura", each List.Min([data_chiusura]), type nullable datetime},
+            {prefisso & "_ultima_chiusura", each List.Max([data_chiusura]), type nullable datetime},
+            {prefisso & "_ultima_rilevazione", each List.Max([timestamp]), type nullable datetime}}),
+    AggW = Aggrega(W, "whisky"),
+    AggC = Aggrega(C, "champagne"),
+
+    // elenco unico dei paesi di whisky + champagne
+    Paesi = Table.Distinct(
+        Table.Combine({
+            Table.SelectColumns(W, {"nazionalita_codice", "nazionalita_nome"}),
+            Table.SelectColumns(C, {"nazionalita_codice", "nazionalita_nome"})}),
+        {"nazionalita_codice"}),
+
+    // merge LEFT OUTER sul codice paese
+    MergeW = Table.NestedJoin(Paesi, {"nazionalita_codice"}, AggW, {"nazionalita_codice"}, "W", JoinKind.LeftOuter),
+    EspW = Table.ExpandTableColumn(MergeW, "W",
+        {"whisky_lotti_vinti", "whisky_prima_chiusura", "whisky_ultima_chiusura", "whisky_ultima_rilevazione"}),
+    MergeC = Table.NestedJoin(EspW, {"nazionalita_codice"}, AggC, {"nazionalita_codice"}, "C", JoinKind.LeftOuter),
+    EspC = Table.ExpandTableColumn(MergeC, "C",
+        {"champagne_lotti_vinti", "champagne_prima_chiusura", "champagne_ultima_chiusura", "champagne_ultima_rilevazione"}),
+    Zeri = Table.ReplaceValue(EspC, null, 0, Replacer.ReplaceValue, {"whisky_lotti_vinti", "champagne_lotti_vinti"}),
+    Tipi = Table.TransformColumnTypes(Zeri, {
+        {"nazionalita_codice", type text}, {"nazionalita_nome", type text},
+        {"whisky_lotti_vinti", Int64.Type}, {"champagne_lotti_vinti", Int64.Type},
+        {"whisky_prima_chiusura", type datetime}, {"whisky_ultima_chiusura", type datetime},
+        {"whisky_ultima_rilevazione", type datetime},
+        {"champagne_prima_chiusura", type datetime}, {"champagne_ultima_chiusura", type datetime},
+        {"champagne_ultima_rilevazione", type datetime}}),
+    Ordinata = Table.Sort(Tipi, {{"nazionalita_nome", Order.Ascending}})
+in
+    Ordinata
+
+
+B) RELAZIONI (vista Modello)
+   Dim_Country[nazionalita_codice] 1 -> * lotti_whisky[nazionalita_codice]
+   Dim_Country[nazionalita_codice] 1 -> * lotti_champagne[nazionalita_codice]
+   Filtro incrociato: singolo.
+
+
+C) DAX - verifica (Modellazione > Nuova misura, una alla volta)
+
+JointDistinctCountNotBlank =
+VAR Paesi =
+    DISTINCT (
+        UNION (
+            SELECTCOLUMNS ( ALL ( lotti_whisky[nazionalita_codice] ), "Codice", lotti_whisky[nazionalita_codice] ),
+            SELECTCOLUMNS ( ALL ( lotti_champagne[nazionalita_codice] ), "Codice", lotti_champagne[nazionalita_codice] )
+        )
+    )
+RETURN
+    COUNTROWS ( FILTER ( Paesi, NOT ISBLANK ( [Codice] ) && [Codice] <> "" ) )
+
+Verifica Dim_Country =
+IF ( [JointDistinctCountNotBlank] = COUNTROWS ( ALL ( Dim_Country ) ), "OK", "Diverso: controlla Dim_Country" )
+
+Colonna calcolata (Dim_Country > Nuova colonna), utile per vedere chi compra cosa:
+Presenza =
+SWITCH (
+    TRUE (),
+    Dim_Country[whisky_lotti_vinti] > 0 && Dim_Country[champagne_lotti_vinti] > 0, "Whisky e champagne",
+    Dim_Country[whisky_lotti_vinti] > 0, "Solo whisky",
+    "Solo champagne"
+)
+
+Valori attesi con i CSV del 02/10 ore 20:01: 36 paesi (31 in entrambe, 4 solo whisky, 1 solo champagne),
+JointDistinctCountNotBlank = 36, Verifica = OK.

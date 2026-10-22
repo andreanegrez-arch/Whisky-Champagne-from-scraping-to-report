@@ -1,0 +1,38 @@
+# --- Credenziali (mai su GitHub) ---
+.env
+*.env
+imposta_credenziali_telegram.bat
+tunnel.txt
+
+# --- Ambienti e dipendenze ---
+venv/
+.venv/
+env/
+node_modules/
+__pycache__/
+*.pyc
+
+# --- Dati (database, backup, Excel, export) ---
+*.db
+*.db.bak*
+*.bak_*
+*.sqlite
+*.xlsx
+data/
+logs/
+*.log
+*.lock
+export_powerbi/lotti_*.csv
+export_powerbi/lotti_ritirati_*.csv
+export_powerbi/DimCountry.csv
+export_powerbi/Calendario.csv
+correzioni_prezzi_*.csv
+
+# --- Build e varie ---
+dist/
+build/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.tmp

@@ -1,0 +1,15 @@
+node_modules/
+venv/
+.venv/
+data/
+logs/
+*.csv
+*.xlsx
+*.db
+*.log
+__pycache__/
+.env
+backend/venv/
+backend/__pycache__/
+translate_bot/node_modules/
+translate_bot/.wwebjs_auth/

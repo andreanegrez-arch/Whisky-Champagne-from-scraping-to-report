@@ -1,0 +1,33 @@
+# Elite-Dashboard - dipendenze Python unificate (whisky + champagne + export Power BI)
+# Python >= 3.11 (sviluppato con 3.14). Installazione:
+#   python -m pip install -r requirements.txt
+
+# API backend
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic-settings
+
+# Database
+sqlalchemy[asyncio]
+aiosqlite
+
+# Scraping
+curl_cffi
+beautifulsoup4
+
+# Dati, Excel e modelli
+pandas
+numpy
+openpyxl
+xlsxwriter
+scikit-learn
+
+# Bot, avvisi e scheduler
+python-telegram-bot>=20
+requests
+schedule
+
+# Opzionali
+# selectolax   # solo scraper_historic_async.py (bloccato da Smart App Control su Windows)
+# lxml         # installato dal workflow GitHub Actions

@@ -1,0 +1,53 @@
+name: Auto Scraper
+
+on:
+  schedule:
+    # Runs at 03:00 and 17:00 UTC every day
+    - cron: '0 3,17 * * *'
+  workflow_dispatch: # Allows manual trigger from the Actions tab
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  # Credenziali Telegram: GitHub > Settings > Secrets and variables > Actions
+  TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+  TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+jobs:
+  scrape-and-update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip' # Enable automatic caching of dependencies to speed up runs
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r backend/requirements.txt
+        pip install schedule requests python-telegram-bot lxml
+
+    - name: Run Scraper (Single Session)
+      run: |
+        cd backend
+        python run_scraper_cli.py
+
+    - name: Run Bargain Checker
+      run: |
+        python scraper/check_bargains.py
+
+    - name: Commit and Push Database
+      run: |
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        git add -A
+        git commit -m "Automated scraper data update & telegram alerts" || exit 0
+        git pull --rebase origin main
+        git push

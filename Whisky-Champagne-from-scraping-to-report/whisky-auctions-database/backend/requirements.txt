@@ -1,0 +1,16 @@
+fastapi
+uvicorn[standard]
+sqlalchemy[asyncio]
+aiosqlite
+curl_cffi
+beautifulsoup4
+pandas
+openpyxl
+xlsxwriter
+python-multipart
+pydantic-settings
+scikit-learn
+numpy
+python-telegram-bot
+requests
+schedule
