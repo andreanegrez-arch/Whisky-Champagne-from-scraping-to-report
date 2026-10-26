@@ -1,5 +1,7 @@
 # Whisky & Champagne — from scraping to report
 
+   🎬 **[Watch the project presentation (video)](Elite-Dashboard_presentation.mp4)**
+
 **Elite-Dashboard**: auction intelligence per whisky e champagne da investimento su Catawiki.
 
 Sistema automatico di **raccolta, pulizia e analisi dei prezzi d'asta** di whisky e champagne da investimento, con Catawiki come mercato di riferimento.
