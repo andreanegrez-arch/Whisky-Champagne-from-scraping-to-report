@@ -1,9 +1,10 @@
 """
 grafico.py - grafico cronologico dei prezzi di una bottiglia, in PNG (01/11/2026).
 
-Usato dal comando Telegram /grafico. Scritto in Python puro (solo zlib e
-struct della libreria standard): niente matplotlib o Pillow, che su Windows
-con Smart App Control rischiano di essere bloccati come selectolax.
+Usato dal comando Telegram /grafico. Usa matplotlib se e' installato e si
+carica (02/11/2026); altrimenti ripiega su un disegno in Python puro (solo zlib
+e struct della libreria standard), utile se Smart App Control blocca le DLL di
+matplotlib come era successo con selectolax.
 
 Cosa disegna:
   - un punto per ogni lotto venduto (prezzo per bottiglia, alla data di chiusura)
@@ -232,8 +233,8 @@ def _tick_date(d0, d1):
 
 # ------------------------------------------------------------------ grafico
 
-def disegna(ris: dict) -> bytes:
-    """Riceve il risultato di price_lookup.cerca e restituisce il PNG."""
+def _disegna_puro(ris: dict) -> bytes:
+    """Versione in Python puro (riserva se matplotlib non si carica)."""
     storico = ris["storico"]
     date = [datetime.strptime(v["data"][:16], "%Y-%m-%d %H:%M") for v in storico]
     prezzi = [v["prezzo_bott"] for v in storico]
@@ -336,3 +337,135 @@ def disegna(ris: dict) -> bytes:
     t.testo(lx + 20, ly, f"ultima {_euro_breve(prezzi[-1])} ({date[-1].strftime('%d/%m/%y')})", ULTIMO)
 
     return t.png()
+
+
+# ------------------------------------------------------------------ versione matplotlib
+
+def _finestra_giorni(date):
+    giorni_tot = max(1, (max(date) - min(date)).days)
+    return int(min(FINESTRA_MAX, max(FINESTRA_MIN, giorni_tot / 12)))
+
+
+def _media_mobile(date, prezzi, finestra):
+    """Segmenti [(date, valori), ...] della media mobile, spezzati nei buchi > finestra."""
+    segmenti, xs, ys, j, visti = [], [], [], 0, set()
+    for i in range(len(prezzi)):
+        giorno = date[i].date()
+        if giorno in visti:
+            continue
+        visti.add(giorno)
+        k = i
+        while k + 1 < len(prezzi) and date[k + 1].date() == giorno:
+            k += 1
+        while (date[k] - date[j]).days > finestra:
+            j += 1
+        if i > 0 and (date[i] - date[i - 1]).days > finestra and xs:
+            segmenti.append((xs, ys))
+            xs, ys = [], []
+        fin = prezzi[j:k + 1]
+        xs.append(date[k])
+        ys.append(sum(fin) / len(fin))
+    if xs:
+        segmenti.append((xs, ys))
+    return segmenti
+
+
+def _euro_it(v, decimali=0):
+    s = f"{v:,.{decimali}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"{s} \u20ac"
+
+
+def _hex(c):
+    return "#%02x%02x%02x" % c
+
+
+def _disegna_matplotlib(ris: dict) -> bytes:
+    import io
+    import matplotlib
+    matplotlib.use("Agg")  # nessuna finestra: solo immagine in memoria
+    import matplotlib.pyplot as plt
+    import matplotlib.dates as mdates
+    from matplotlib.ticker import FuncFormatter, MaxNLocator
+
+    storico = ris["storico"]
+    date = [datetime.strptime(v["data"][:16], "%Y-%m-%d %H:%M") for v in storico]
+    prezzi = [v["prezzo_bott"] for v in storico]
+    speciali = [bool(v.get("edizione")) for v in storico]
+    misto = any(speciali) and not all(speciali)
+    finestra = _finestra_giorni(date)
+
+    fig, ax = plt.subplots(figsize=(10, 6), dpi=150)
+    fig.patch.set_facecolor("white")
+    ax.set_facecolor("white")
+
+    # punti delle vendite (se ci sono standard e speciali insieme, colori diversi)
+    std = [(d, p) for d, p, sp in zip(date, prezzi, speciali) if not sp or not misto]
+    if std:
+        ax.scatter(*zip(*std), s=26, color=_hex(PUNTI), alpha=0.75, linewidths=0,
+                   label="vendita", zorder=3)
+    if misto:
+        spc = [(d, p) for d, p, sp in zip(date, prezzi, speciali) if sp]
+        ax.scatter(*zip(*spc), s=30, facecolors="none", edgecolors="#8e5cc4", linewidths=1.3,
+                   label="edizione speciale", zorder=3)
+
+    # media mobile
+    if len(prezzi) >= 2:
+        for n, (xs, ys) in enumerate(_media_mobile(date, prezzi, finestra)):
+            ax.plot(xs, ys, color=_hex(LINEA), linewidth=2.2, zorder=4,
+                    label=f"media {finestra} giorni" if n == 0 else None)
+
+    # media totale
+    ax.axhline(ris["media"], color=_hex(MEDIA), linewidth=1.3, linestyle=(0, (5, 4)), zorder=2,
+               label=f"media totale {_euro_it(ris['media'])}")
+
+    # ultima vendita
+    ax.scatter([date[-1]], [prezzi[-1]], s=90, color=_hex(ULTIMO), edgecolors="white",
+               linewidths=1.5, zorder=5,
+               label=f"ultima {_euro_it(prezzi[-1])} ({date[-1].strftime('%d/%m/%y')})")
+
+    # assi
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: _euro_it(v)))
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=6))
+    loc = mdates.AutoDateLocator(minticks=4, maxticks=8)
+    ax.xaxis.set_major_locator(loc)
+    giorni = (max(date) - min(date)).days
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%d/%m" if giorni <= 45 else "%m/%y"))
+    if giorni == 0:
+        from datetime import timedelta
+        ax.set_xlim(date[0] - timedelta(days=3), date[0] + timedelta(days=3))
+    ax.grid(axis="y", color=_hex(GRIGLIA), linewidth=0.8, zorder=0)
+    for lato in ("top", "right", "left"):
+        ax.spines[lato].set_visible(False)
+    ax.spines["bottom"].set_color(_hex(ASSE))
+    ax.tick_params(colors=_hex(TESTO_SOFT), labelsize=9, length=0)
+    ax.tick_params(axis="x", length=4, color=_hex(ASSE))
+
+    # titolo
+    titolo = "  \u00b7  ".join(str(x) for x in ris["richiesta"] if str(x).strip() not in ("", "*"))
+    n = ris["vendite"]
+    fig.text(0.075, 0.955, titolo, fontsize=15, fontweight="bold", color=_hex(TESTO), ha="left")
+    fig.text(0.075, 0.915,
+             f"{n} {'vendita' if n == 1 else 'vendite'} \u00b7 prezzo per bottiglia dei lotti venduti"
+             + (f" \u00b7 escluse {sum(ris['escluse'].values())} edizioni speciali" if ris.get("escluse") else ""),
+             fontsize=9.5, color=_hex(TESTO_SOFT), ha="left")
+    leg = ax.legend(loc="upper left", bbox_to_anchor=(0, 1.1), ncol=5, frameon=False,
+                    fontsize=8.5, handlelength=1.8, columnspacing=1.4, borderaxespad=0)
+    for t in leg.get_texts():
+        t.set_color(_hex(TESTO_SOFT))
+    fig.subplots_adjust(left=0.075, right=0.975, top=0.80, bottom=0.08)
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", facecolor="white")
+    plt.close(fig)
+    return buf.getvalue()
+
+
+def disegna(ris: dict) -> bytes:
+    """Riceve il risultato di price_lookup.cerca e restituisce il PNG.
+    Prova matplotlib; se non e' installato o Windows lo blocca, usa la versione in Python puro."""
+    try:
+        return _disegna_matplotlib(ris)
+    except Exception as e:  # ImportError, DLL bloccata, ...
+        import logging
+        logging.warning(f"grafico: matplotlib non disponibile ({e}), uso il disegno semplice")
+        return _disegna_puro(ris)
