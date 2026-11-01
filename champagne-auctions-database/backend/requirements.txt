@@ -14,3 +14,4 @@ numpy
 python-telegram-bot
 requests
 schedule
+matplotlib

@@ -3,7 +3,7 @@ import asyncio
 import logging
 import sys
 import socket
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 # Aggiungiamo il percorso radice per importare il backend
@@ -60,6 +60,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Comandi:\n"
         "🚀 /update    - Avvia una scansione completa del database\n"
         "🌐 /dashboard - Ricevi il link alla Dashboard via Wi-Fi e 4G\n"
+        "📈 /grafico   - Grafico prezzi con link alle aste (es. lagavulin 16)\n"
         "🆔 /id        - Mostra il tuo Chat ID"
     )
     await update.message.reply_text(msg, parse_mode='Markdown')
@@ -129,6 +130,48 @@ async def send_dashboard_link(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     await update.message.reply_text(msg, parse_mode='Markdown', disable_web_page_preview=True)
 
+# --- GRAFICO PREZZI CON LINK ALLE ASTE ---
+DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend", "Whisky SQLite.db")
+COLONNE_RICERCA = ("distilleria", "imbottigliatore", "stile", "eta")
+
+@restricted
+async def send_chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/grafico [ricerca] [NNg] - grafico prezzi con un link all'asta per ogni punto"""
+    import grafico_aste as ga
+
+    filtro, giorni = ga.analizza_argomenti(context.args)
+    if not os.path.exists(DB_PATH):
+        await update.message.reply_text("❌ Database non trovato. Usa /update per crearlo.")
+        return
+    await update.message.reply_chat_action("upload_photo")
+    try:
+        punti = await asyncio.to_thread(ga.carica_punti, DB_PATH, COLONNE_RICERCA, filtro, giorni)
+    except Exception as e:
+        logging.error(f"Errore lettura dati grafico: {e}", exc_info=True)
+        await update.message.reply_text(f"❌ Errore nella lettura del database: {e}")
+        return
+    if not punti:
+        await update.message.reply_text(
+            "🔍 Nessun lotto con prezzo trovato" + (f" per «{filtro}»" if filtro else "") + ".\n"
+            "Esempio: /grafico lagavulin 16  (aggiungi 90g per gli ultimi 90 giorni)")
+        return
+
+    titolo = ga.titolo_grafico("🥃 Whisky", filtro, giorni, punti)
+    tastiera = InlineKeyboardMarkup(
+        [[InlineKeyboardButton(etichetta, url=url) for etichetta, url in riga]
+         for riga in ga.pulsanti(punti)])
+    png = await asyncio.to_thread(ga.crea_png, punti, titolo)
+    didascalia = titolo + "\nTocca un pulsante per aprire l'asta col numero indicato sul grafico (○ = asta aperta)."
+    if png:
+        await update.message.reply_photo(photo=png, caption=didascalia, reply_markup=tastiera)
+    else:
+        await update.message.reply_text(didascalia, reply_markup=tastiera)
+
+    nome = "grafico_" + ("".join(ch if ch.isalnum() else "_" for ch in filtro)[:40] or "ultimi") + ".html"
+    await update.message.reply_document(
+        document=ga.crea_html(punti, titolo), filename=nome,
+        caption="📈 Grafico interattivo: aprilo e tocca un punto per andare all'asta.")
+
 if __name__ == '__main__':
     if not TELEGRAM_TOKEN:
         print("ERRORE: token Telegram mancante. Imposta la variabile d'ambiente TELEGRAM_TOKEN_WHISKY")
@@ -141,6 +184,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("id", show_id))
     app.add_handler(CommandHandler("update", run_update))
     app.add_handler(CommandHandler("dashboard", send_dashboard_link))
+    app.add_handler(CommandHandler("grafico", send_chart))
     
     print("Bot Whisky in ascolto... Premi Ctrl+C per fermare.")
     # Ascolto "lungo": una sola richiesta a Telegram ogni 50 secondi circa (prima ogni 10).

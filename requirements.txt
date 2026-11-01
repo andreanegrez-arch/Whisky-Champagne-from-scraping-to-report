@@ -25,6 +25,7 @@ scikit-learn
 
 # Bot, avvisi e scheduler
 python-telegram-bot>=20
+matplotlib     # grafico /grafico del bot Telegram (senza: solo pulsanti + HTML)
 requests
 schedule
 

@@ -36,8 +36,8 @@ Il progetto copre l'intera filiera del dato:
 ┌──────▼──────────┐   ┌───────────────▼──────────┐   ┌───────────────▼──────┐   ┌──────────▼─────────┐
 │ FastAPI backend │   │ telegram_bot.py           │   │ check_bargains.py    │   │ export_powerbi.py  │
 │ /api/lots       │   │ /update /file /dashboard  │   │ avvisi "affare" su   │   │ pulizia + CSV      │
-│ /api/analysis   │   └──────────────────────────┘   │ Telegram             │   └──────────┬─────────┘
-│ /api/scraper    │                                   └──────────────────────┘              │
+│ /api/analysis   │   │ /grafico (link alle aste) │   │ Telegram             │   └──────────┬─────────┘
+│ /api/scraper    │   └──────────────────────────┘   └──────────────────────┘              │
 └──────┬──────────┘                                                              ┌──────────▼─────────┐
 ┌──────▼──────────┐   tunnel SSH (localhost.run)                                 │ CAPSTONE POWER BI  │
 │ React + Vite    │ ─────────────────────────► accesso remoto alla dashboard     │ .pbix              │
@@ -84,7 +84,8 @@ Whisky-Champagne-from-scraping-to-report/
 │   ├── scraper/
 │   │   ├── scraper.py              scheduler (03:00 / 17:00) + Excel mensile con analisi
 │   │   ├── scraper_historic_async.py  recupero dello storico
-│   │   ├── telegram_bot.py         bot di controllo
+│   │   ├── telegram_bot.py         bot di controllo (/update, /dashboard, /grafico…)
+│   │   ├── grafico_aste.py         grafico prezzi del comando /grafico con link alle aste
 │   │   └── check_bargains.py       avvisi su lotti sotto il prezzo medio
 │   ├── frontend/                   React 18 + Vite 5 + ECharts/Recharts
 │   │   ├── src/App.jsx, src/components/   Dashboard · Inventory · Analysis · BottleDetail ·
@@ -139,6 +140,7 @@ Whisky-Champagne-from-scraping-to-report/
 | `scikit-learn` | Regressione lineare per la previsione del prezzo |
 | `python-telegram-bot` (**≥ 20**, usa `ApplicationBuilder`) | Bot Telegram |
 | `requests`, `schedule` | Avvisi Telegram e scheduler 03:00/17:00 |
+| `matplotlib` | Immagine del grafico `/grafico` sul bot Telegram (se manca, il bot invia comunque pulsanti e grafico HTML) |
 
 Opzionali:
 - `selectolax`: lo usa solo `scraper_historic_async.py`. Il resto del codice usa `html_compat.py`.
@@ -227,6 +229,7 @@ Gli script lanciano anche `Unblock-File` su tutta la cartella, per prevenire i b
 | `/update` | Lancia una sessione di scraping |
 | `/file` | Invia l'ultimo Excel mensile |
 | `/dashboard` | Invia il link pubblico del tunnel |
+| `/grafico [ricerca] [NNg]` | Grafico dei prezzi con link alle aste (es. `/grafico lagavulin 16`, `/grafico krug 90g`). Ogni punto è numerato: i pulsanti sotto l'immagine aprono l'asta col numero corrispondente. Arriva anche un file HTML interattivo in cui basta toccare un punto per aprire l'asta. Senza ricerca mostra gli ultimi 30 giorni. Punto pieno = asta chiusa, punto vuoto = asta aperta |
 
 ### API principali (documentazione interattiva su `/docs`)
 
