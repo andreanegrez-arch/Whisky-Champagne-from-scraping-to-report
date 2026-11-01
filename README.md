@@ -85,7 +85,8 @@ Whisky-Champagne-from-scraping-to-report/
 │   │   ├── scraper.py              scheduler (03:00 / 17:00) + Excel mensile con analisi
 │   │   ├── scraper_historic_async.py  recupero dello storico
 │   │   ├── telegram_bot.py         bot di controllo (/update /dashboard /prezzo ...)
-│   │   ├── price_lookup.py         statistiche di prezzo per /prezzo
+│   │   ├── price_lookup.py         statistiche di prezzo per /prezzo e /grafico
+│   │   ├── grafico.py              grafico PNG in Python puro per /grafico
 │   │   └── check_bargains.py       avvisi su lotti sotto il prezzo medio
 │   ├── frontend/                   React 18 + Vite 5 + ECharts/Recharts
 │   │   ├── src/App.jsx, src/components/   Dashboard · Inventory · Analysis · BottleDetail ·

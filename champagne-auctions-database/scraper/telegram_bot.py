@@ -18,6 +18,8 @@ except ImportError:
 # Statistiche di prezzo per il comando /prezzo
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import price_lookup
+import grafico
+from io import BytesIO
 
 # Database SQLite letto da /prezzo (lo stesso della dashboard)
 SQLITE_DB_PATH = os.environ.get("PREZZO_DB_PATH") or os.path.join(
@@ -77,6 +79,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📊 /file   - Invia l'ultimo report Excel salvato\n"
         "🌐 /dashboard - Ricevi il link alla Dashboard via Wi-Fi\n"
         "💶 /prezzo - Prezzo medio, ultima chiusura e trend di una bottiglia\n"
+        "📈 /grafico - Grafico cronologico completo di una bottiglia\n"
         "🆔 /id     - Mostra il tuo Chat ID"
     )
     await update.message.reply_text(msg, parse_mode='Markdown')
@@ -151,6 +154,33 @@ async def price_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = f"❌ Errore durante la ricerca: {e}"
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
+@restricted
+async def price_chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/grafico Maison | Tipologia | Annata | Formato: immagine con tutte le vendite nel tempo"""
+    args = price_lookup.interpreta_argomenti(update.message.text)
+    if not args or not args[0]:
+        await update.message.reply_text(
+            price_lookup.AIUTO.format(campi="Maison | Tipologia | Annata | Formato",
+                                      esempi="<code>/grafico Dom Perignon | Brut | 2017 | 0.75</code>").replace("/prezzo", "/grafico"),
+            parse_mode=ParseMode.HTML)
+        return
+    await update.message.reply_chat_action("upload_photo")
+    try:
+        ris = await asyncio.to_thread(price_lookup.cerca, SQLITE_DB_PATH, "champagne", *args)
+        if "errore" in ris:
+            await update.message.reply_text(price_lookup.formatta(ris, "champagne"), parse_mode=ParseMode.HTML)
+            return
+        png = await asyncio.to_thread(grafico.disegna, ris)
+        didascalia = price_lookup.formatta(ris, "champagne")
+        if len(didascalia) <= 1024:  # limite Telegram per le didascalie
+            await update.message.reply_photo(photo=BytesIO(png), caption=didascalia, parse_mode=ParseMode.HTML)
+        else:
+            await update.message.reply_photo(photo=BytesIO(png))
+            await update.message.reply_text(didascalia, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+    except Exception as e:
+        logging.error(f"Errore /grafico: {e}", exc_info=True)
+        await update.message.reply_text(f"❌ Errore durante il grafico: {e}")
+
 def get_local_ip():
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -204,6 +234,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("update", run_update))
     app.add_handler(CommandHandler("dashboard", send_dashboard_link))
     app.add_handler(CommandHandler("prezzo", price_stats))
+    app.add_handler(CommandHandler("grafico", price_chart))
     
     print("Bot in ascolto... Premi Ctrl+C per fermare.")
     # Ascolto "lungo": una sola richiesta a Telegram ogni 50 secondi circa (prima ogni 10).

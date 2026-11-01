@@ -220,6 +220,7 @@ def cerca(db_path: str, profilo: str, produttore: str, tipologia: str = "",
         "ultimo_vs_media": (ultimo["prezzo_bott"] - media) / media * 100 if media else None,
         "trend": trend,
         "base_trend": base_trend,
+        "storico": vendite,  # tutte le vendite in ordine di data (per /grafico)
     }
 
 
