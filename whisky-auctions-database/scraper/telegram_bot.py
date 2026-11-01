@@ -5,10 +5,19 @@ import sys
 import socket
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram.constants import ParseMode
 
 # Aggiungiamo il percorso radice per importare il backend
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend"))
+
+# Statistiche di prezzo per il comando /prezzo
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+import price_lookup
+
+# Database SQLite letto da /prezzo (lo stesso della dashboard)
+SQLITE_DB_PATH = os.environ.get("PREZZO_DB_PATH") or os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend", "Whisky SQLite.db")
 
 # --- CONFIGURAZIONE ---
 # Token e chat ID NON stanno nel codice: si leggono dalle variabili d'ambiente.
@@ -60,6 +69,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Comandi:\n"
         "🚀 /update    - Avvia una scansione completa del database\n"
         "🌐 /dashboard - Ricevi il link alla Dashboard via Wi-Fi e 4G\n"
+        "💶 /prezzo    - Prezzo medio, ultima chiusura e trend di una bottiglia\n"
         "🆔 /id        - Mostra il tuo Chat ID"
     )
     await update.message.reply_text(msg, parse_mode='Markdown')
@@ -90,6 +100,27 @@ async def run_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logging.error(f"Errore bot update: {e}", exc_info=True)
         await update.message.reply_text(f"❌ Errore durante lo scraping: {e}")
+
+@restricted
+async def price_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/prezzo Distilleria | Stile | Eta o annata | Formato"""
+    args = price_lookup.interpreta_argomenti(update.message.text)
+    if not args or not args[0]:
+        esempi = ("<code>/prezzo Macallan | Single Malt | 18 | 0.70</code>\n"
+                  "<code>/prezzo Springbank | * | 2001 | 70cl</code>\n"
+                  "<code>/prezzo Port Ellen | * | * | *</code>")
+        await update.message.reply_text(
+            price_lookup.AIUTO.format(campi="Distilleria | Stile | Età o annata | Formato", esempi=esempi),
+            parse_mode=ParseMode.HTML)
+        return
+    await update.message.reply_chat_action("typing")
+    try:
+        ris = await asyncio.to_thread(price_lookup.cerca, SQLITE_DB_PATH, "whisky", *args)
+        msg = price_lookup.formatta(ris, "whisky")
+    except Exception as e:
+        logging.error(f"Errore /prezzo: {e}", exc_info=True)
+        msg = f"❌ Errore durante la ricerca: {e}"
+    await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 def get_local_ip():
     try:
@@ -141,6 +172,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("id", show_id))
     app.add_handler(CommandHandler("update", run_update))
     app.add_handler(CommandHandler("dashboard", send_dashboard_link))
+    app.add_handler(CommandHandler("prezzo", price_stats))
     
     print("Bot Whisky in ascolto... Premi Ctrl+C per fermare.")
     # Ascolto "lungo": una sola richiesta a Telegram ogni 50 secondi circa (prima ogni 10).

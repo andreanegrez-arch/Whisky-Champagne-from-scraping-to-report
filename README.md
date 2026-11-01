@@ -35,7 +35,7 @@ Il progetto copre l'intera filiera del dato:
        │                              │                              │                     │
 ┌──────▼──────────┐   ┌───────────────▼──────────┐   ┌───────────────▼──────┐   ┌──────────▼─────────┐
 │ FastAPI backend │   │ telegram_bot.py           │   │ check_bargains.py    │   │ export_powerbi.py  │
-│ /api/lots       │   │ /update /file /dashboard  │   │ avvisi "affare" su   │   │ pulizia + CSV      │
+│ /api/lots       │   │ /update /dashboard /prezzo│   │ avvisi "affare" su   │   │ pulizia + CSV      │
 │ /api/analysis   │   └──────────────────────────┘   │ Telegram             │   └──────────┬─────────┘
 │ /api/scraper    │                                   └──────────────────────┘              │
 └──────┬──────────┘                                                              ┌──────────▼─────────┐
@@ -84,7 +84,8 @@ Whisky-Champagne-from-scraping-to-report/
 │   ├── scraper/
 │   │   ├── scraper.py              scheduler (03:00 / 17:00) + Excel mensile con analisi
 │   │   ├── scraper_historic_async.py  recupero dello storico
-│   │   ├── telegram_bot.py         bot di controllo
+│   │   ├── telegram_bot.py         bot di controllo (/update /dashboard /prezzo ...)
+│   │   ├── price_lookup.py         statistiche di prezzo per /prezzo
 │   │   └── check_bargains.py       avvisi su lotti sotto il prezzo medio
 │   ├── frontend/                   React 18 + Vite 5 + ECharts/Recharts
 │   │   ├── src/App.jsx, src/components/   Dashboard · Inventory · Analysis · BottleDetail ·
