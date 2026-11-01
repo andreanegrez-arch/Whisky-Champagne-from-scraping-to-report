@@ -51,6 +51,16 @@ La colonna grezza `nazionalita` non viene esportata. Al suo posto:
     nazionalita_nome    nome del paese in italiano, SOLO se verificata
     winner_username / winner_id   solo per le righe verificate
 
+Edizione speciale (dal 02/11/2026), in fondo al CSV:
+    edizione         "Standard" oppure il nome dell'edizione riconosciuta dal titolo:
+                     collaborazioni (Lady Gaga, Lenny Kravitz, Basquiat, Warhol, ...),
+                     Legacy Edition, Luminous, "Edizione limitata", "Con accessori".
+                     Stesse regole del bot Telegram (/prezzo e /grafico): l'elenco e'
+                     in champagne-auctions-database/scraper/price_lookup.py (EDIZIONI).
+                     In Power BI: filtro edizione = "Standard" per i prezzi di riferimento.
+Champagne: le "Plenitude 2/3" scritte per esteso nel titolo passano da "Brut" a P2/P3
+(il database riconosceva solo la sigla "P2").
+
 Esito d'asta (dall'11/10/2026, vedi correggi_prezzi.py), in fondo al CSV:
     esito            venduto | invenduto | in corso | non verificabile
     offerta_massima  offerta piu' alta ricevuta, anche se il lotto non e' venduto
@@ -88,6 +98,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pulizia_distilleria import Pulitore  # noqa: E402
 from pulizia_maison import PulitoreMaison  # noqa: E402
+# Regole delle edizioni speciali condivise con il bot Telegram
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "champagne-auctions-database" / "scraper"))
+from price_lookup import rileva_edizione, _correggi_tipologia  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Configurazione
@@ -106,7 +119,8 @@ COLONNE_SOSTITUITE = {"nazionalita", "winner_username", "winner_id"}
 COLONNE_ESITO = ["esito", "offerta_massima"]
 COLONNE_NAZIONALITA = ["nazionalita_stato", "nazionalita_codice", "nazionalita_nome",
                        "winner_username", "winner_id"]
-COLONNE_AGGIUNTE = ["data_ora_chiusura"]
+COLONNE_AGGIUNTE = ["data_ora_chiusura", "edizione"]
+TIPOLOGIE_NON_VINO = {"Items"}  # accessori: la tipologia non va corretta
 
 # Tipo di ogni colonna nei CSV. Tutto quello che non e' qui e' testo.
 TIPI = {
@@ -285,6 +299,23 @@ def correggi_formato(riga, stat):
     return db
 
 
+def aggiungi_edizione(r, stat):
+    """Colonna `edizione` e, per lo champagne, tipologia P2/P3 dalle 'Plenitude' scritte per esteso."""
+    titolo = r.get("title") or ""
+    if not titolo:
+        r["edizione"] = None
+        return
+    ed = rileva_edizione(titolo, "champagne" if "maison" in r else "whisky")
+    r["edizione"] = ed or "Standard"
+    if ed:
+        stat["edizioni"] = stat.get("edizioni", 0) + 1
+    if "tipologia" in r and r.get("tipologia") not in TIPOLOGIE_NON_VINO:
+        nuova = _correggi_tipologia(r["tipologia"], titolo)
+        if nuova != r["tipologia"]:
+            stat["plenitude"] = stat.get("plenitude", 0) + 1
+            r["tipologia"] = nuova
+
+
 def leggi_lotti(conn, escludi, pulisci, pulisci_maison=True):
     """Righe di `lots` gia' pulite, come lista di dict (chiave = colonna CSV)."""
     invenduti = lotti_invenduti(conn)
@@ -334,6 +365,7 @@ def leggi_lotti(conn, escludi, pulisci, pulisci_maison=True):
         r["data_chiusura"] = dt.date() if dt else None
         r["data_ora_chiusura"] = dt
         r["timestamp"] = a_datetime(g.get("timestamp"))
+        aggiungi_edizione(r, stat)
         righe.append(r)
     return intest, righe, stat
 
@@ -373,6 +405,7 @@ def leggi_ritirati(conn, pulisci, escludi, pul_maison=None):
         r["mese"] = dt.strftime("%Y-%m") if dt else ""
         r["data_chiusura"] = dt.date() if dt else None
         r["data_ora_chiusura"] = dt
+        aggiungi_edizione(r, stat)
         righe.append(r)
     return intest, righe
 
@@ -523,6 +556,8 @@ def main():
             print(f"  {n} righe scritte; formato corretto dal titolo su {stat['formato']} righe"
                   + (f"; distilleria pulita su {stat['distilleria']} righe" if prog == "whisky" else "")
                   + (f"; maison pulita su {stat['maison']} righe" if stat["pul_maison"] else ""))
+            print(f"  edizioni speciali riconosciute: {stat.get('edizioni', 0)} righe"
+                  + (f"; tipologia Plenitude corretta su {stat['plenitude']} righe" if stat.get("plenitude") else ""))
             for motivo, quanti in stat["esclusi"].items():
                 print(f"  esclusi {quanti} lotti '{motivo}'")
             ok &= verifica_csv(a.out / nome_csv, ita, chiave="id")

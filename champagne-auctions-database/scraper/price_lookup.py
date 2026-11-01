@@ -103,53 +103,58 @@ def produttore_corrisponde(richiesta: str, valore) -> bool:
 # NB: la sola parola "edition" NON basta: "Krug Grande Cuvee 170eme Edition" o
 # "Labruyere XIII Edition" sono la numerazione della cuvee normale.
 # Ordine: prima i nomi specifici, poi le categorie generiche.
+# Terzo valore: "champagne" = vale solo per lo champagne (nel whisky "Batch 007" o
+# "Sakura Cask" non sono edizioni speciali); None = vale per tutti e due.
 EDIZIONI = [
     # Dom Perignon
-    (r"lady\s*gaga", "Lady Gaga"),
-    (r"lenny\s*kravitz|\bkravitz\b", "Lenny Kravitz"),
-    (r"basquiat", "Jean-Michel Basquiat"),
-    (r"damien\s*hirst|\bhirst\b", "Damien Hirst"),
-    (r"murakami", "Takashi Murakami"),
-    (r"warhol", "Andy Warhol"),
-    (r"david\s*lynch", "David Lynch"),
-    (r"koons|balloon\s*venus", "Jeff Koons"),
-    (r"michael\s*riedel", "Michael Riedel"),
-    (r"tokujin|yoshioka", "Tokujin Yoshioka"),
-    (r"szekely", "Martin Szekely"),
-    (r"iris\s*van\s*herpen|van\s*herpen", "Iris van Herpen"),
-    (r"bjork|cunningham", "Bjork & Chris Cunningham"),
-    (r"lagerfeld", "Karl Lagerfeld"),
-    (r"marc\s*newson", "Marc Newson"),
-    (r"kaukoranta", "Edward Kaukoranta"),
-    (r"legacy\s*edition", "Legacy Edition"),
+    (r"lady\s*gaga", "Lady Gaga", "champagne"),
+    (r"lenny\s*kravitz|\bkravitz\b", "Lenny Kravitz", "champagne"),
+    (r"basquiat", "Jean-Michel Basquiat", "champagne"),
+    (r"damien\s*hirst|\bhirst\b", "Damien Hirst", "champagne"),
+    (r"murakami", "Takashi Murakami", "champagne"),
+    (r"warhol", "Andy Warhol", "champagne"),
+    (r"david\s*lynch", "David Lynch", "champagne"),
+    (r"koons|balloon\s*venus", "Jeff Koons", "champagne"),
+    (r"michael\s*riedel", "Michael Riedel", "champagne"),
+    (r"tokujin|yoshioka", "Tokujin Yoshioka", "champagne"),
+    (r"szekely", "Martin Szekely", "champagne"),
+    (r"iris\s*van\s*herpen|van\s*herpen", "Iris van Herpen", "champagne"),
+    (r"bjork|cunningham", "Bjork & Chris Cunningham", "champagne"),
+    (r"lagerfeld", "Karl Lagerfeld", "champagne"),
+    (r"marc\s*newson", "Marc Newson", "champagne"),
+    (r"kaukoranta", "Edward Kaukoranta", "champagne"),
+    (r"legacy\s*edition", "Legacy Edition", None),
     # altre maison
-    (r"kusama", "Yayoi Kusama"),
-    (r"jacquemus", "Jacquemus"),
-    (r"yinka\s*ilori", "Yinka Ilori"),
-    (r"pharrell", "Pharrell"),
-    (r"starck", "Philippe Starck"),
-    (r"laposse", "Fernando Laposse"),
-    (r"gaultier", "Jean-Paul Gaultier"),
-    (r"\b007\b", "007"),
-    (r"tour\s*eiffel|olympic|la\s*flamme|jeux\s*olympiques", "Olimpiadi / Tour Eiffel"),
-    (r"golf\s*edition", "Golf Edition"),
-    (r"monaco", "Monaco"),
-    (r"sakura", "Sakura"),
-    (r"bugatti", "Bugatti"),
-    (r"millennium", "Millennium"),
+    (r"kusama", "Yayoi Kusama", "champagne"),
+    (r"jacquemus", "Jacquemus", "champagne"),
+    (r"yinka\s*ilori", "Yinka Ilori", "champagne"),
+    (r"pharrell", "Pharrell", "champagne"),
+    (r"starck", "Philippe Starck", "champagne"),
+    (r"laposse", "Fernando Laposse", "champagne"),
+    (r"gaultier", "Jean-Paul Gaultier", "champagne"),
+    (r"\b007\b", "007", "champagne"),
+    (r"tour\s*eiffel|olympic|la\s*flamme|jeux\s*olympiques", "Olimpiadi / Tour Eiffel", "champagne"),
+    (r"golf\s*edition", "Golf Edition", "champagne"),
+    (r"monaco", "Monaco", "champagne"),
+    (r"sakura", "Sakura", "champagne"),
+    (r"bugatti", "Bugatti", "champagne"),
+    (r"millennium", "Millennium", None),
     # categorie generiche
-    (r"luminous", "Luminous"),
+    (r"luminous", "Luminous", None),
     (r"limited\s*edition|edition\s*limitee|limited\s*edition|edizione\s*limitata|"
-     r"special\s*edition|edition\s*speciale|edizione\s*speciale|collector", "Edizione limitata"),
-    (r"cooler|ice\s*box|ice\s*jacket|bucket|seau|\bglass(es)?\b|flutes?\b|calici|bicchieri|verres", "Con accessori"),
+     r"special\s*edition|edition\s*speciale|edizione\s*speciale|collector", "Edizione limitata", None),
+    (r"cooler|ice\s*box|ice\s*jacket|bucket|seau|\bglass(es)?\b|flutes?\b|calici|bicchieri|verres", "Con accessori", None),
 ]
-_EDIZIONI_RE = [(re.compile(p), nome) for p, nome in EDIZIONI]
+_EDIZIONI_RE = [(re.compile(p), nome, solo) for p, nome, solo in EDIZIONI]
 
 
-def rileva_edizione(titolo):
-    """Nome dell'edizione speciale dal titolo, oppure None se e' una bottiglia standard."""
+def rileva_edizione(titolo, profilo=None):
+    """Nome dell'edizione speciale dal titolo, oppure None se e' una bottiglia standard.
+    profilo: 'champagne' o 'whisky' (le voci solo-champagne non valgono per il whisky)."""
     t = norma(titolo)
-    for rx, nome in _EDIZIONI_RE:
+    for rx, nome, solo in _EDIZIONI_RE:
+        if solo and profilo and solo != profilo:
+            continue
         if rx.search(t):
             return nome
     return None
@@ -242,7 +247,7 @@ def cerca(db_path: str, profilo: str, produttore: str, tipologia: str = "",
 
     # --- edizioni speciali
     from collections import Counter
-    con_ed = [(r, rileva_edizione(r["title"])) for r in trovati]
+    con_ed = [(r, rileva_edizione(r["title"], profilo)) for r in trovati]
     tutte_ed = Counter(ed for _, ed in con_ed if ed)
     grezzo = (edizione or "").strip().lower()
     e = norma(edizione)
@@ -299,7 +304,7 @@ def cerca(db_path: str, profilo: str, produttore: str, tipologia: str = "",
             "url": r["url"],
             "title": r["title"],
             "formato": r["formato"],
-            "edizione": rileva_edizione(r["title"]),
+            "edizione": rileva_edizione(r["title"], profilo),
         })
     vendite.sort(key=lambda v: v["data"])
 
