@@ -52,6 +52,8 @@ La colonna grezza `nazionalita` non viene esportata. Al suo posto:
     winner_username / winner_id   solo per le righe verificate
 
 Edizione speciale (dal 02/11/2026), in fondo al CSV:
+    edizione_categoria  "Standard" | "Edizione speciale": raggruppa tutte le edizioni
+                        speciali in una sola voce (filtro/slicer in Power BI)
     edizione         "Standard" oppure il nome dell'edizione riconosciuta dal titolo:
                      collaborazioni (Lady Gaga, Lenny Kravitz, Basquiat, Warhol, ...),
                      Legacy Edition, Luminous, "Edizione limitata", "Con accessori".
@@ -119,7 +121,8 @@ COLONNE_SOSTITUITE = {"nazionalita", "winner_username", "winner_id"}
 COLONNE_ESITO = ["esito", "offerta_massima"]
 COLONNE_NAZIONALITA = ["nazionalita_stato", "nazionalita_codice", "nazionalita_nome",
                        "winner_username", "winner_id"]
-COLONNE_AGGIUNTE = ["data_ora_chiusura", "edizione"]
+COLONNE_AGGIUNTE = ["data_ora_chiusura", "edizione_categoria", "edizione"]
+STANDARD, SPECIALE = "Standard", "Edizione speciale"
 TIPOLOGIE_NON_VINO = {"Items"}  # accessori: la tipologia non va corretta
 
 # Tipo di ogni colonna nei CSV. Tutto quello che non e' qui e' testo.
@@ -303,10 +306,11 @@ def aggiungi_edizione(r, stat):
     """Colonna `edizione` e, per lo champagne, tipologia P2/P3 dalle 'Plenitude' scritte per esteso."""
     titolo = r.get("title") or ""
     if not titolo:
-        r["edizione"] = None
+        r["edizione"] = r["edizione_categoria"] = None
         return
     ed = rileva_edizione(titolo, "champagne" if "maison" in r else "whisky")
-    r["edizione"] = ed or "Standard"
+    r["edizione"] = ed or STANDARD
+    r["edizione_categoria"] = SPECIALE if ed else STANDARD
     if ed:
         stat["edizioni"] = stat.get("edizioni", 0) + 1
     if "tipologia" in r and r.get("tipologia") not in TIPOLOGIE_NON_VINO:
