@@ -142,7 +142,8 @@ async def price_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not args or not args[0]:
         esempi = ("<code>/prezzo Dom Perignon | Brut | 2012 | 0.75</code>\n"
                   "<code>/prezzo Krug | Brut | 2004 | magnum</code>\n"
-                  "<code>/prezzo Cristal | * | 2008 | 75cl</code>")
+                  "<code>/prezzo Cristal | * | 2008 | 75cl</code>\n"
+                  "<code>/prezzo Dom Perignon | Brut | 2008 | 0.75 | Lenny Kravitz</code>")
         await update.message.reply_text(price_lookup.AIUTO.format(campi="Maison | Tipologia | Annata | Formato", esempi=esempi), parse_mode=ParseMode.HTML)
         return
     await update.message.reply_chat_action("typing")

@@ -96,6 +96,65 @@ def produttore_corrisponde(richiesta: str, valore) -> bool:
     return bool(r) and (r == v or r in v)
 
 
+# ---------------------------------------------------------------- edizioni speciali
+# Collaborazioni ed edizioni speciali riconosciute dal titolo del lotto (01/11/2026).
+# Nel database non c'e' una colonna "edizione": una Dom Perignon 2008 Lenny Kravitz
+# finiva nella tipologia "Brut" insieme alla 2008 normale e falsava la media.
+# NB: la sola parola "edition" NON basta: "Krug Grande Cuvee 170eme Edition" o
+# "Labruyere XIII Edition" sono la numerazione della cuvee normale.
+# Ordine: prima i nomi specifici, poi le categorie generiche.
+EDIZIONI = [
+    # Dom Perignon
+    (r"lady\s*gaga", "Lady Gaga"),
+    (r"lenny\s*kravitz|\bkravitz\b", "Lenny Kravitz"),
+    (r"basquiat", "Jean-Michel Basquiat"),
+    (r"damien\s*hirst|\bhirst\b", "Damien Hirst"),
+    (r"murakami", "Takashi Murakami"),
+    (r"warhol", "Andy Warhol"),
+    (r"david\s*lynch", "David Lynch"),
+    (r"koons|balloon\s*venus", "Jeff Koons"),
+    (r"michael\s*riedel", "Michael Riedel"),
+    (r"tokujin|yoshioka", "Tokujin Yoshioka"),
+    (r"szekely", "Martin Szekely"),
+    (r"iris\s*van\s*herpen|van\s*herpen", "Iris van Herpen"),
+    (r"bjork|cunningham", "Bjork & Chris Cunningham"),
+    (r"lagerfeld", "Karl Lagerfeld"),
+    (r"marc\s*newson", "Marc Newson"),
+    (r"kaukoranta", "Edward Kaukoranta"),
+    (r"legacy\s*edition", "Legacy Edition"),
+    # altre maison
+    (r"kusama", "Yayoi Kusama"),
+    (r"jacquemus", "Jacquemus"),
+    (r"yinka\s*ilori", "Yinka Ilori"),
+    (r"pharrell", "Pharrell"),
+    (r"starck", "Philippe Starck"),
+    (r"laposse", "Fernando Laposse"),
+    (r"gaultier", "Jean-Paul Gaultier"),
+    (r"\b007\b", "007"),
+    (r"tour\s*eiffel|olympic|la\s*flamme|jeux\s*olympiques", "Olimpiadi / Tour Eiffel"),
+    (r"golf\s*edition", "Golf Edition"),
+    (r"monaco", "Monaco"),
+    (r"sakura", "Sakura"),
+    (r"bugatti", "Bugatti"),
+    (r"millennium", "Millennium"),
+    # categorie generiche
+    (r"luminous", "Luminous"),
+    (r"limited\s*edition|edition\s*limitee|limited\s*edition|edizione\s*limitata|"
+     r"special\s*edition|edition\s*speciale|edizione\s*speciale|collector", "Edizione limitata"),
+    (r"cooler|ice\s*box|ice\s*jacket|bucket|seau|\bglass(es)?\b|flutes?\b|calici|bicchieri|verres", "Con accessori"),
+]
+_EDIZIONI_RE = [(re.compile(p), nome) for p, nome in EDIZIONI]
+
+
+def rileva_edizione(titolo):
+    """Nome dell'edizione speciale dal titolo, oppure None se e' una bottiglia standard."""
+    t = norma(titolo)
+    for rx, nome in _EDIZIONI_RE:
+        if rx.search(t):
+            return nome
+    return None
+
+
 # ---------------------------------------------------------------- query
 
 def _apri(db_path: str) -> sqlite3.Connection:
@@ -134,11 +193,26 @@ def _lotti_venduti(con, profilo: str):
         data = r["data_chiusura"] or ""
         if not re.match(r"\d{4}-\d{2}-\d{2}", data) or data > adesso:
             continue
+        r = dict(r)
+        if profilo == "champagne":
+            r["tipologia"] = _correggi_tipologia(r["tipologia"], r["title"])
         yield r
 
 
+def _correggi_tipologia(tipologia, titolo):
+    """Il parser riconosce 'P2' ma non 'Plenitude 2' scritto per esteso (Dom Perignon)."""
+    t = norma(titolo)
+    m = re.search(r"plenitude\s*(2|3|deuxieme|troisieme|second|third)", t)
+    if m:
+        p = "P3" if m.group(1) in ("3", "troisieme", "third") else "P2"
+        return p + (" Rosé" if "rose" in t else "")
+    return tipologia
+
+
 def cerca(db_path: str, profilo: str, produttore: str, tipologia: str = "",
-          annata: str = "", formato: str = "") -> dict:
+          annata: str = "", formato: str = "", edizione: str = "") -> dict:
+    """edizione: '' = solo bottiglie standard (default), '*' o 'tutte' = tutto,
+    'speciali' = solo edizioni speciali, oppure un nome (es. 'Lady Gaga')."""
     """Restituisce un dict con le statistiche, oppure {'errore': ..., 'suggerimenti': ...}."""
     if not os.path.exists(db_path):
         return {"errore": f"Database non trovato: {db_path}"}
@@ -166,6 +240,43 @@ def cerca(db_path: str, profilo: str, produttore: str, tipologia: str = "",
     if not trovati:
         return _senza_risultati(venduti, filtra, profilo)
 
+    # --- edizioni speciali
+    from collections import Counter
+    con_ed = [(r, rileva_edizione(r["title"])) for r in trovati]
+    tutte_ed = Counter(ed for _, ed in con_ed if ed)
+    grezzo = (edizione or "").strip().lower()
+    e = norma(edizione)
+    if grezzo in ("*", "-", "tutte", "tutto", "tutti", "all", "any"):
+        scelti, escluse = con_ed, Counter()
+    elif not e:
+        scelti = [(r, ed) for r, ed in con_ed if ed is None]
+        escluse = tutte_ed
+    elif e in ("speciali", "speciale", "special"):
+        scelti = [(r, ed) for r, ed in con_ed if ed]
+        escluse = Counter()
+    else:
+        scelti = [(r, ed) for r, ed in con_ed if ed and e in norma(ed)]
+        escluse = Counter()
+    if not scelti:
+        sugg = [f"{k} ({v})" for k, v in tutte_ed.most_common()]
+        if e and any(ed is None for _, ed in con_ed):
+            sugg = ["standard: lascia vuoto il 5° campo"] + sugg
+        return {"errore": "Nessuna vendita per questa edizione." if e
+                else "Ci sono solo edizioni speciali per questa bottiglia.",
+                "campo": "Edizione", "suggerimenti": sugg}
+    trovati = [r for r, _ in scelti]
+    nomi_ed = {ed for _, ed in scelti}
+    if grezzo in ("*", "-", "tutte", "tutto", "tutti", "all", "any"):
+        etichetta_ed = "Tutte le edizioni"
+    elif not e:
+        etichetta_ed = "Standard"
+    elif len(nomi_ed) == 1 and None not in nomi_ed:
+        etichetta_ed = nomi_ed.pop()
+    elif e in ("speciali", "speciale", "special"):
+        etichetta_ed = "Edizioni speciali"
+    else:
+        etichetta_ed = "Tutte le edizioni"
+
     # Se 'contiene' ha trovato piu' produttori diversi, li segnaliamo
     produttori = sorted({r["produttore"] for r in trovati if r["produttore"]})
     # Nel titolo usiamo i nomi come sono scritti nel database (se univoci)
@@ -173,7 +284,7 @@ def cerca(db_path: str, profilo: str, produttore: str, tipologia: str = "",
         valori = {r[campo] for r in trovati if r[campo]}
         return str(valori.pop()) if len(valori) == 1 else richiesto
     voce = (nome_db("produttore", produttore), nome_db("tipologia", tipologia),
-            nome_db("annata", annata), nome_db("formato", formato))
+            nome_db("annata", annata), nome_db("formato", formato), etichetta_ed)
 
     vendite = []
     for r in trovati:
@@ -188,6 +299,7 @@ def cerca(db_path: str, profilo: str, produttore: str, tipologia: str = "",
             "url": r["url"],
             "title": r["title"],
             "formato": r["formato"],
+            "edizione": rileva_edizione(r["title"]),
         })
     vendite.sort(key=lambda v: v["data"])
 
@@ -221,6 +333,7 @@ def cerca(db_path: str, profilo: str, produttore: str, tipologia: str = "",
         "trend": trend,
         "base_trend": base_trend,
         "storico": vendite,  # tutte le vendite in ordine di data (per /grafico)
+        "escluse": dict(escluse.most_common()),  # edizioni speciali tolte dal calcolo
     }
 
 
@@ -276,8 +389,7 @@ def formatta(ris: dict, profilo: str) -> str:
                    ", ".join(escape(s) for s in ris["suggerimenti"])
         return msg
 
-    prod, tip, ann, fmt = ris["richiesta"]
-    voce = " · ".join(escape(x) for x in (prod, tip, ann, fmt) if norma(x) not in JOLLY)
+    voce = " · ".join(escape(str(x)) for x in ris["richiesta"] if norma(x) not in JOLLY)
     u = ris["ultimo"]
     righe = [
         f"{p['emoji']} <b>{voce}</b>",
@@ -299,6 +411,12 @@ def formatta(ris: dict, profilo: str) -> str:
     if len(ris["produttori"]) > 1:
         righe += ["", "⚠️ Ho unito più nomi: " + ", ".join(escape(x) for x in ris["produttori"][:8])
                   + ". Scrivi il nome completo per restringere."]
+    if ris.get("escluse"):
+        n_esc = sum(ris["escluse"].values())
+        elenco = ", ".join(f"{escape(k)} ({v})" for k, v in list(ris["escluse"].items())[:8])
+        righe += ["", f"🎨 <b>Escluse {n_esc} edizioni speciali:</b> {elenco}",
+                  "    aggiungi <code>| nome</code> come 5° campo per vederne una, "
+                  "<code>| tutte</code> per includerle"]
     righe += ["", "<i>Solo lotti venduti, lotti misti esclusi. Prezzi in euro, al netto di spedizione.</i>"]
     return "\n".join(righe)
 
@@ -310,7 +428,7 @@ def interpreta_argomenti(testo: str):
         return []
     sep = "|" if "|" in corpo else (";" if ";" in corpo else ",")
     parti = [x.strip() for x in corpo.split(sep)]
-    return (parti + ["", "", ""])[:4]
+    return (parti + ["", "", "", ""])[:5]
 
 
 AIUTO = (
@@ -318,5 +436,8 @@ AIUTO = (
     "Esempi:\n"
     "{esempi}\n\n"
     "Il separatore può essere | oppure ;  —  usa * per non filtrare un campo.\n"
+    "5° campo facoltativo, l'edizione: vuoto = solo bottiglie standard, "
+    "<code>Lady Gaga</code>, <code>Luminous</code>… = solo quell'edizione, "
+    "<code>speciali</code> = tutte le edizioni speciali, <code>tutte</code> = tutto.\n"
     "Formati: 0.75 / 75cl, 0.70 / 70cl, magnum / 1.5, jeroboam / 3."
 )
