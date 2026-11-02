@@ -394,7 +394,8 @@ def _disegna_matplotlib(ris: dict) -> bytes:
     misto = any(speciali) and not all(speciali)
     finestra = _finestra_giorni(date)
 
-    fig, ax = plt.subplots(figsize=(10, 6), dpi=150)
+    # formato quasi quadrato: sul telefono il grafico non risulta "schiacciato"
+    fig, ax = plt.subplots(figsize=(8, 7.5), dpi=150)
     fig.patch.set_facecolor("white")
     ax.set_facecolor("white")
 
@@ -408,20 +409,38 @@ def _disegna_matplotlib(ris: dict) -> bytes:
         ax.scatter(*zip(*spc), s=30, facecolors="none", edgecolors="#8e5cc4", linewidths=1.3,
                    label="edizione speciale", zorder=3)
 
-    # media mobile
-    if len(prezzi) >= 2:
-        for n, (xs, ys) in enumerate(_media_mobile(date, prezzi, finestra)):
+    # media mobile e media totale: con standard e speciali insieme si calcolano
+    # SOLO sulle standard (le speciali restano come punti viola di confronto)
+    if misto:
+        d_m = [d for d, sp in zip(date, speciali) if not sp]
+        p_m = [p for p, sp in zip(prezzi, speciali) if not sp]
+        suff = " (standard)"
+    else:
+        d_m, p_m, suff = date, prezzi, ""
+    if len(p_m) >= 2:
+        for n, (xs, ys) in enumerate(_media_mobile(d_m, p_m, finestra)):
             ax.plot(xs, ys, color=_hex(LINEA), linewidth=2.2, zorder=4,
-                    label=f"media {finestra} giorni" if n == 0 else None)
-
-    # media totale
-    ax.axhline(ris["media"], color=_hex(MEDIA), linewidth=1.3, linestyle=(0, (5, 4)), zorder=2,
-               label=f"media totale {_euro_it(ris['media'])}")
+                    label=f"media {finestra} giorni{suff}" if n == 0 else None)
+    media_rif = sum(p_m) / len(p_m)
+    ax.axhline(media_rif, color=_hex(MEDIA), linewidth=1.3, linestyle=(0, (5, 4)), zorder=2,
+               label=f"media totale{suff} {_euro_it(media_rif)}")
 
     # ultima vendita
     ax.scatter([date[-1]], [prezzi[-1]], s=90, color=_hex(ULTIMO), edgecolors="white",
                linewidths=1.5, zorder=5,
                label=f"ultima {_euro_it(prezzi[-1])} ({date[-1].strftime('%d/%m/%y')})")
+
+    # numeri sulle ultime vendite: corrispondono all'elenco con i link (1 = piu' recente)
+    # (vendite nello stesso giorno allo stesso prezzo: un'etichetta sola, es. "3,4")
+    from price_lookup import ULTIME_NUMERATE
+    etichette = {}
+    for i in range(1, min(ULTIME_NUMERATE, len(prezzi)) + 1):
+        chiave = (date[-i].date(), round(prezzi[-i], 2))
+        etichette.setdefault(chiave, (date[-i], prezzi[-i], []))[2].append(str(i))
+    for d, p, nums in etichette.values():
+        ax.annotate(",".join(nums), (d, p), xytext=(0, 9), textcoords="offset points", ha="center",
+                    fontsize=8.5, fontweight="bold", color=_hex(TESTO), zorder=6,
+                    bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="none", alpha=0.8))
 
     # assi
     ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: _euro_it(v)))
@@ -437,22 +456,22 @@ def _disegna_matplotlib(ris: dict) -> bytes:
     for lato in ("top", "right", "left"):
         ax.spines[lato].set_visible(False)
     ax.spines["bottom"].set_color(_hex(ASSE))
-    ax.tick_params(colors=_hex(TESTO_SOFT), labelsize=9, length=0)
+    ax.tick_params(colors=_hex(TESTO_SOFT), labelsize=10.5, length=0)
     ax.tick_params(axis="x", length=4, color=_hex(ASSE))
 
     # titolo
     titolo = "  \u00b7  ".join(str(x) for x in ris["richiesta"] if str(x).strip() not in ("", "*"))
     n = ris["vendite"]
-    fig.text(0.075, 0.955, titolo, fontsize=15, fontweight="bold", color=_hex(TESTO), ha="left")
-    fig.text(0.075, 0.915,
+    fig.text(0.09, 0.955, titolo, fontsize=15, fontweight="bold", color=_hex(TESTO), ha="left")
+    fig.text(0.09, 0.918,
              f"{n} {'vendita' if n == 1 else 'vendite'} \u00b7 prezzo per bottiglia dei lotti venduti"
              + (f" \u00b7 escluse {sum(ris['escluse'].values())} edizioni speciali" if ris.get("escluse") else ""),
-             fontsize=9.5, color=_hex(TESTO_SOFT), ha="left")
-    leg = ax.legend(loc="upper left", bbox_to_anchor=(0, 1.1), ncol=5, frameon=False,
-                    fontsize=8.5, handlelength=1.8, columnspacing=1.4, borderaxespad=0)
+             fontsize=10, color=_hex(TESTO_SOFT), ha="left")
+    leg = ax.legend(loc="upper left", bbox_to_anchor=(0, 1.13), ncol=3, frameon=False,
+                    fontsize=9.5, handlelength=1.8, columnspacing=1.4, borderaxespad=0)
     for t in leg.get_texts():
         t.set_color(_hex(TESTO_SOFT))
-    fig.subplots_adjust(left=0.075, right=0.975, top=0.80, bottom=0.08)
+    fig.subplots_adjust(left=0.115, right=0.97, top=0.80, bottom=0.07)
 
     buf = io.BytesIO()
     fig.savefig(buf, format="png", facecolor="white")

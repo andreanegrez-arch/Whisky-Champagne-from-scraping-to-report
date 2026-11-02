@@ -19,6 +19,9 @@ import sqlite3
 import unicodedata
 from datetime import datetime, timezone
 
+# Quante ultime vendite numerare sul grafico e nell'elenco con i link (/grafico)
+ULTIME_NUMERATE = 10
+
 # Quante vendite confrontare per il trend (ultime N contro le N precedenti)
 TREND_FINESTRA = 5
 
@@ -324,9 +327,21 @@ def cerca(db_path: str, profilo: str, produttore: str, tipologia: str = "",
             base_trend = ("ultima vendita vs precedente" if k == 1
                           else f"media ultime {k} vendite vs {k} precedenti")
 
+    # Statistiche separate per edizione (utile con '| tutte' o '| speciali')
+    gruppi = {}
+    for v in vendite:
+        gruppi.setdefault(v["edizione"] or "Standard", []).append(v)
+    per_edizione = []
+    for nome, vv in gruppi.items():
+        pp = [x["prezzo_bott"] for x in vv]
+        per_edizione.append({"nome": nome, "vendite": len(vv), "media": sum(pp) / len(pp),
+                             "ultimo": vv[-1]})
+    per_edizione.sort(key=lambda g: (g["nome"] != "Standard", -g["vendite"]))
+
     return {
         "profilo": profilo,
         "richiesta": voce,
+        "per_edizione": per_edizione,
         "produttori": produttori,
         "vendite": n,
         "bottiglie": sum(v["bottiglie"] for v in vendite),
@@ -413,6 +428,14 @@ def formatta(ris: dict, profilo: str) -> str:
         f"📊 <b>Trend:</b> {pct(ris['trend'])}"
         + (f" <i>({ris['base_trend']})</i>" if ris["base_trend"] else " <i>(serve almeno 2 vendite)</i>"),
     ]
+    if len(ris.get("per_edizione", [])) > 1:
+        righe += ["", "📋 <b>Per edizione</b> (media / ultima vendita):"]
+        for g in ris["per_edizione"][:10]:
+            u2 = g["ultimo"]
+            righe.append(f"    • <b>{escape(g['nome'])}</b>: {g['vendite']} vend. · media {euro(g['media'])}"
+                         f" · ultima {euro(u2['prezzo_bott'])} ({u2['data'][8:10]}/{u2['data'][5:7]}/{u2['data'][2:4]})")
+        if len(ris["per_edizione"]) > 10:
+            righe.append(f"    … e altre {len(ris['per_edizione']) - 10}")
     if len(ris["produttori"]) > 1:
         righe += ["", "⚠️ Ho unito più nomi: " + ", ".join(escape(x) for x in ris["produttori"][:8])
                   + ". Scrivi il nome completo per restringere."]
@@ -423,6 +446,20 @@ def formatta(ris: dict, profilo: str) -> str:
                   "    aggiungi <code>| nome</code> come 5° campo per vederne una, "
                   "<code>| tutte</code> per includerle"]
     righe += ["", "<i>Solo lotti venduti, lotti misti esclusi. Prezzi in euro, al netto di spedizione.</i>"]
+    return "\n".join(righe)
+
+
+def formatta_elenco(ris: dict, n: int = ULTIME_NUMERATE) -> str:
+    """Ultime n vendite con link, numerate come i punti del grafico (1 = la piu' recente)."""
+    from html import escape
+    ultime = list(reversed(ris["storico"]))[:n]
+    righe = [f"🔗 <b>Ultime {len(ultime)} vendite</b> (numeri come sul grafico):"]
+    for i, v in enumerate(ultime, 1):
+        d = v["data"]
+        ed = v.get("edizione") or "Standard"
+        bott = f" ({v['bottiglie']} bott.)" if v["bottiglie"] > 1 else ""
+        righe.append(f"<b>{i}.</b> {d[8:10]}/{d[5:7]}/{d[2:4]} · {euro(v['prezzo_bott'])}/bott.{bott}"
+                     f" · {escape(ed)} · <a href=\"{escape(v['url'] or '')}\">asta</a>")
     return "\n".join(righe)
 
 

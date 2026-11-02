@@ -178,6 +178,9 @@ async def price_chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_photo(photo=BytesIO(png))
             await update.message.reply_text(didascalia, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        # Una foto non puo' contenere link: elenco numerato delle ultime aste
+        await update.message.reply_text(price_lookup.formatta_elenco(ris), parse_mode=ParseMode.HTML,
+                                        disable_web_page_preview=True)
     except Exception as e:
         logging.error(f"Errore /grafico: {e}", exc_info=True)
         await update.message.reply_text(f"❌ Errore durante il grafico: {e}")
